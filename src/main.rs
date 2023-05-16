@@ -1,4 +1,7 @@
 use serde_derive::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Serialize, Deserialize)]
 struct Message {
@@ -22,10 +25,14 @@ impl Message {
             dest: self.src.clone(),
             body: Body {
                 typ: body_type,
-                msg_id: None,
+                msg_id: Some(Message::get_next_msg_id()),
                 in_reply_to: self.body.msg_id,
             },
         }
+    }
+
+    fn get_next_msg_id() -> usize {
+        COUNTER.fetch_add(1, Ordering::SeqCst)
     }
 }
 
