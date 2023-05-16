@@ -3,7 +3,7 @@
 version = 3
 
 [[package]]
-name = "echo"
+name = "gossip"
 version = "0.1.0"
 dependencies = [
  "serde",
