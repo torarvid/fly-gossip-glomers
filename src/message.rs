@@ -27,6 +27,8 @@ pub enum BodyType {
     EchoOk(BodyEcho),
     Init(BodyInit),
     InitOk,
+    Generate,
+    GenerateOk(BodyGenerate),
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -38,4 +40,16 @@ pub struct BodyEcho {
 pub struct BodyInit {
     pub node_id: String,
     pub node_ids: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct BodyGenerate {
+    pub id: String,
+}
+
+impl BodyGenerate {
+    pub fn new() -> Self {
+        let id = ulid::Ulid::new().to_string();
+        Self { id }
+    }
 }

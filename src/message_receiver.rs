@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::message::{Body, BodyInit, BodyType, Message};
+use crate::message::{Body, BodyGenerate, BodyInit, BodyType, Message};
 use crate::node::Node;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -27,6 +27,7 @@ impl MessageReceiver {
         let body_type = match &message.body.typ {
             BodyType::Echo(echo) => BodyType::EchoOk(echo.to_owned()),
             BodyType::Init(body) => MessageReceiver::on_init(&body),
+            BodyType::Generate => BodyType::GenerateOk(BodyGenerate::new()),
             _ => panic!("Unknown message type"),
         };
         Message {
