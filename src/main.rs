@@ -37,6 +37,10 @@ impl Repo for App {
             .map(|id| self.nodes.get(id).unwrap().clone())
             .collect()
     }
+
+    fn all_nodes(&self) -> Vec<&Node> {
+        self.nodes.values().collect()
+    }
 }
 
 fn main() {
@@ -45,8 +49,6 @@ fn main() {
         nodes: HashMap::new(),
         topology: HashMap::new(),
     };
-    let mut message_receiver = MessageReceiver {
-        repo: Box::new(app),
-    };
+    let mut message_receiver = MessageReceiver::new(Box::new(app));
     message_receiver.start_reading();
 }

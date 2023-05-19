@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
+use std::{println, thread};
 
 use crate::message::{
     Body, BodyBroadcast, BodyGenerate, BodyInit, BodyReadOk, BodyTopology, BodyType, Message,
@@ -10,10 +12,20 @@ use crate::repo::Repo;
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 pub struct MessageReceiver {
-    pub repo: Box<dyn Repo>,
+    repo: Box<dyn Repo>,
+    msg_queue: Arc<RwLock<HashMap<usize, Message>>>,
 }
 
 impl MessageReceiver {
+    pub fn new(repo: Box<dyn Repo>) -> Self {
+        let mut instance = Self {
+            repo,
+            msg_queue: Arc::new(RwLock::new(HashMap::new())),
+        };
+        instance.queue_retrier();
+        instance
+    }
+
     pub fn start_reading(&mut self) {
         let stdin = std::io::stdin();
         let stdin = stdin.lock();
@@ -32,7 +44,7 @@ impl MessageReceiver {
             BodyType::Init(body) => Some(self.on_init(&body)),
             BodyType::Generate => Some(BodyType::GenerateOk(BodyGenerate::new())),
             BodyType::Broadcast(body) => Some(self.on_broadcast(body)),
-            BodyType::BroadcastOk => None,
+            BodyType::BroadcastOk => self.on_broadcast_ok(&message.body),
             BodyType::Read => Some(self.on_read()),
             BodyType::Topology(body) => Some(self.on_topology(body)),
             _ => panic!("Unknown message type {:?}", message.body.typ),
@@ -47,16 +59,27 @@ impl MessageReceiver {
                     in_reply_to: message.body.msg_id,
                 },
             };
-            self.send_outgoing(&message);
+            MessageReceiver::send_outgoing(&message);
         }
     }
 
-    fn send_outgoing(&self, message: &Message) {
+    fn send_outgoing(message: &Message) {
         println!("{}", serde_json::to_string(message).unwrap());
     }
 
     fn get_next_msg_id() -> usize {
         COUNTER.fetch_add(1, Ordering::SeqCst)
+    }
+
+    fn queue_retrier(&mut self) {
+        let msg_queue = Arc::clone(&self.msg_queue);
+        thread::spawn(move || loop {
+            let r = msg_queue.read().unwrap();
+            for (_msg_id, message) in r.iter() {
+                MessageReceiver::send_outgoing(&message);
+            }
+            thread::sleep(std::time::Duration::from_millis(100));
+        });
     }
 
     fn on_init(&mut self, body_init: &BodyInit) -> BodyType {
@@ -75,8 +98,7 @@ impl MessageReceiver {
         let node_id = node.id.clone();
         if !node.has_message(body_broadcast.message) {
             node.add_message(body_broadcast.message);
-            for neighbor_node in self.repo.neighbors(&node_id) {
-                // TODO: impl retry
+            for neighbor_node in self.repo.all_nodes() {
                 let message = Message {
                     src: node_id.clone(),
                     dest: neighbor_node.id.clone(),
@@ -88,7 +110,11 @@ impl MessageReceiver {
                         in_reply_to: None,
                     },
                 };
-                self.send_outgoing(&message);
+                // Ensure that the message is sent at least once
+                self.msg_queue
+                    .write()
+                    .unwrap()
+                    .insert(message.body.msg_id.unwrap(), message.to_owned());
             }
         }
         BodyType::BroadcastOk
@@ -111,5 +137,12 @@ impl MessageReceiver {
         }
         self.repo.set_topology(topology);
         BodyType::TopologyOk
+    }
+
+    fn on_broadcast_ok(&self, body: &Body) -> Option<BodyType> {
+        if let Some(msg_id) = body.in_reply_to {
+            self.msg_queue.write().unwrap().remove(&msg_id);
+        }
+        None
     }
 }

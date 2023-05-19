@@ -2,14 +2,14 @@ use std::collections::HashMap;
 
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Message {
     pub src: String,
     pub dest: String,
     pub body: Body,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Body {
     #[serde(flatten)]
     pub typ: BodyType,
@@ -21,7 +21,7 @@ pub struct Body {
     pub in_reply_to: Option<usize>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
 pub enum BodyType {
@@ -44,13 +44,13 @@ pub struct BodyEcho {
     pub echo: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BodyInit {
     pub node_id: String,
     pub node_ids: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BodyGenerate {
     pub id: String,
 }
@@ -62,17 +62,17 @@ impl BodyGenerate {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BodyBroadcast {
     pub message: usize,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BodyReadOk {
     pub messages: Vec<usize>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BodyTopology {
     pub topology: HashMap<String, Vec<String>>,
 }
