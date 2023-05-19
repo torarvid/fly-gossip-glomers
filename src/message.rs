@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -29,6 +31,12 @@ pub enum BodyType {
     InitOk,
     Generate,
     GenerateOk(BodyGenerate),
+    Broadcast(BodyBroadcast),
+    BroadcastOk,
+    Read,
+    ReadOk(BodyReadOk),
+    Topology(BodyTopology),
+    TopologyOk,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -52,4 +60,19 @@ impl BodyGenerate {
         let id = ulid::Ulid::new().to_string();
         Self { id }
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct BodyBroadcast {
+    pub message: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct BodyReadOk {
+    pub messages: Vec<usize>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct BodyTopology {
+    pub topology: HashMap<String, Vec<String>>,
 }
