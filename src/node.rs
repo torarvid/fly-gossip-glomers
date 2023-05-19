@@ -20,4 +20,8 @@ impl Node {
     pub fn get_messages(&self) -> &HashSet<usize> {
         &self.messages
     }
+
+    pub fn has_message(&self, msg_id: usize) -> bool {
+        self.messages.contains(&msg_id)
+    }
 }

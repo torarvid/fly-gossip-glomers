@@ -22,32 +22,37 @@ impl MessageReceiver {
         let iterator = deserializer.into_iter::<Message>();
         for item in iterator {
             let message: Message = item.unwrap();
-            println!(
-                "{}",
-                serde_json::to_string(&self.get_reply(&message)).unwrap()
-            );
+            self.process_incoming(&message);
         }
     }
 
-    fn get_reply(&mut self, message: &Message) -> Message {
+    fn process_incoming(&mut self, message: &Message) {
         let body_type = match &message.body.typ {
-            BodyType::Echo(body) => BodyType::EchoOk(body.to_owned()),
-            BodyType::Init(body) => self.on_init(&body),
-            BodyType::Generate => BodyType::GenerateOk(BodyGenerate::new()),
-            BodyType::Broadcast(body) => self.on_broadcast(body),
-            BodyType::Read => self.on_read(),
-            BodyType::Topology(body) => self.on_topology(body),
-            _ => panic!("Unknown message type"),
+            BodyType::Echo(body) => Some(BodyType::EchoOk(body.to_owned())),
+            BodyType::Init(body) => Some(self.on_init(&body)),
+            BodyType::Generate => Some(BodyType::GenerateOk(BodyGenerate::new())),
+            BodyType::Broadcast(body) => Some(self.on_broadcast(body)),
+            BodyType::BroadcastOk => None,
+            BodyType::Read => Some(self.on_read()),
+            BodyType::Topology(body) => Some(self.on_topology(body)),
+            _ => panic!("Unknown message type {:?}", message.body.typ),
         };
-        Message {
-            src: message.dest.clone(),
-            dest: message.src.clone(),
-            body: Body {
-                typ: body_type,
-                msg_id: Some(MessageReceiver::get_next_msg_id()),
-                in_reply_to: message.body.msg_id,
-            },
+        if let Some(body_type) = body_type {
+            let message = Message {
+                src: message.dest.clone(),
+                dest: message.src.clone(),
+                body: Body {
+                    typ: body_type,
+                    msg_id: Some(MessageReceiver::get_next_msg_id()),
+                    in_reply_to: message.body.msg_id,
+                },
+            };
+            self.send_outgoing(&message);
         }
+    }
+
+    fn send_outgoing(&self, message: &Message) {
+        println!("{}", serde_json::to_string(message).unwrap());
     }
 
     fn get_next_msg_id() -> usize {
@@ -67,7 +72,25 @@ impl MessageReceiver {
 
     fn on_broadcast(&mut self, body_broadcast: &BodyBroadcast) -> BodyType {
         let node = self.repo.this_node();
-        node.add_message(body_broadcast.message);
+        let node_id = node.id.clone();
+        if !node.has_message(body_broadcast.message) {
+            node.add_message(body_broadcast.message);
+            for neighbor_node in self.repo.neighbors(&node_id) {
+                // TODO: impl retry
+                let message = Message {
+                    src: node_id.clone(),
+                    dest: neighbor_node.id.clone(),
+                    body: Body {
+                        typ: BodyType::Broadcast(BodyBroadcast {
+                            message: body_broadcast.message.clone(),
+                        }),
+                        msg_id: Some(MessageReceiver::get_next_msg_id()),
+                        in_reply_to: None,
+                    },
+                };
+                self.send_outgoing(&message);
+            }
+        }
         BodyType::BroadcastOk
     }
 

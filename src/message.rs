@@ -21,7 +21,7 @@ pub struct Body {
     pub in_reply_to: Option<usize>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
 pub enum BodyType {
@@ -39,18 +39,18 @@ pub enum BodyType {
     TopologyOk,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BodyEcho {
     pub echo: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct BodyInit {
     pub node_id: String,
     pub node_ids: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct BodyGenerate {
     pub id: String,
 }
@@ -62,17 +62,17 @@ impl BodyGenerate {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct BodyBroadcast {
     pub message: usize,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct BodyReadOk {
     pub messages: Vec<usize>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct BodyTopology {
     pub topology: HashMap<String, Vec<String>>,
 }
