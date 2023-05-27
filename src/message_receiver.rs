@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::{println, thread};
@@ -34,32 +34,26 @@ impl MessageReceiver {
         let iterator = deserializer.into_iter::<Message>();
         for item in iterator {
             let message: Message = item.unwrap();
-            self.process_incoming(&message);
+            self.process_incoming(message);
         }
     }
 
-    fn process_incoming(&mut self, message: &Message) {
-        let body_type = match &message.body.typ {
-            BodyType::Echo(body) => Some(BodyType::EchoOk(body.to_owned())),
-            BodyType::Init(body) => Some(self.on_init(&body)),
+    fn process_incoming(&mut self, message: Message) {
+        if let Some(body_type) = match message.body.typ.clone() {
+            BodyType::Echo(body) => Some(BodyType::EchoOk(body)),
+            BodyType::Init(body) => Some(self.on_init(body)),
             BodyType::Generate => Some(BodyType::GenerateOk(BodyGenerate::new())),
-            BodyType::Broadcast(body) => Some(self.on_broadcast(body)),
+            BodyType::Broadcast(body) => self.on_broadcast(body),
             BodyType::BroadcastOk => self.on_broadcast_ok(&message.body),
-            BodyType::Read => Some(self.on_read()),
+            BodyType::Read => self.on_read(),
             BodyType::Topology(body) => Some(self.on_topology(body)),
-            _ => panic!("Unknown message type {:?}", message.body.typ),
-        };
-        if let Some(body_type) = body_type {
-            let message = Message {
-                src: message.dest.clone(),
-                dest: message.src.clone(),
-                body: Body {
-                    typ: body_type,
-                    msg_id: Some(MessageReceiver::get_next_msg_id()),
-                    in_reply_to: message.body.msg_id,
-                },
-            };
-            MessageReceiver::send_outgoing(&message);
+            _ => {
+                eprintln!("Unknown message type {:?}", message.body.typ);
+                None
+            }
+        } {
+            let response = message.response(body_type, MessageReceiver::get_next_msg_id());
+            MessageReceiver::send_outgoing(&response);
         }
     }
 
@@ -72,76 +66,71 @@ impl MessageReceiver {
     }
 
     fn queue_retrier(&mut self) {
-        let msg_queue = Arc::clone(&self.msg_queue);
+        let msg_queue_lock = Arc::clone(&self.msg_queue);
         thread::spawn(move || loop {
-            let r = msg_queue.read().unwrap();
-            for (_msg_id, message) in r.iter() {
-                MessageReceiver::send_outgoing(&message);
-            }
+            if let Ok(msq_queue) = msg_queue_lock.read() {
+                for (_msg_id, message) in msq_queue.iter() {
+                    MessageReceiver::send_outgoing(message);
+                }
+            };
             thread::sleep(std::time::Duration::from_millis(100));
         });
     }
 
-    fn on_init(&mut self, body_init: &BodyInit) -> BodyType {
-        let node = Node::new(body_init.node_id.clone());
-        let nodes = body_init
-            .node_ids
-            .iter()
-            .map(|id| Node::new(id.clone()))
-            .collect();
+    fn on_init(&mut self, body_init: BodyInit) -> BodyType {
+        let (node, nodes) = body_init.into();
         self.repo.add_nodes(node, nodes);
         BodyType::InitOk
     }
 
-    fn on_broadcast(&mut self, body_broadcast: &BodyBroadcast) -> BodyType {
-        let node = self.repo.this_node();
-        let node_id = node.id.clone();
-        if !node.has_message(body_broadcast.message) {
-            node.add_message(body_broadcast.message);
-            for neighbor_node in self.repo.all_nodes() {
-                let message = Message {
-                    src: node_id.clone(),
-                    dest: neighbor_node.id.clone(),
-                    body: Body {
-                        typ: BodyType::Broadcast(BodyBroadcast {
-                            message: body_broadcast.message.clone(),
-                        }),
-                        msg_id: Some(MessageReceiver::get_next_msg_id()),
-                        in_reply_to: None,
-                    },
-                };
-                // Ensure that the message is sent at least once
-                self.msg_queue
-                    .write()
-                    .unwrap()
-                    .insert(message.body.msg_id.unwrap(), message.to_owned());
+    fn on_broadcast(&mut self, body_broadcast: BodyBroadcast) -> Option<BodyType> {
+        let neighbors: Vec<Node> = self.repo.all_nodes().into_iter().cloned().collect();
+
+        if let Some(node) = self.repo.this_node() {
+            if !node.has_message(body_broadcast.message) {
+                node.add_message(body_broadcast.message);
+                for neighbor_node in neighbors {
+                    let msg_id = MessageReceiver::get_next_msg_id();
+                    let message = Message {
+                        src: node.id(),
+                        dest: neighbor_node.id(),
+                        body: Body {
+                            typ: BodyType::Broadcast(BodyBroadcast {
+                                message: body_broadcast.message,
+                            }),
+                            msg_id: Some(msg_id),
+                            in_reply_to: None,
+                        },
+                    };
+                    // Ensure that the message is sent at least once
+                    if let Ok(mut msg_queue) = self.msg_queue.write() {
+                        msg_queue.insert(msg_id, message);
+                    }
+                }
             }
+            return Some(BodyType::BroadcastOk);
         }
-        BodyType::BroadcastOk
+        None
     }
 
-    fn on_read(&mut self) -> BodyType {
-        let node = self.repo.this_node();
-        let messages: Vec<usize> = node.get_messages().iter().map(|message| *message).collect();
-        BodyType::ReadOk(BodyReadOk { messages })
+    fn on_read(&mut self) -> Option<BodyType> {
+        if let Some(node) = self.repo.this_node() {
+            let messages: Vec<usize> = node.get_messages().iter().copied().collect();
+            return Some(BodyType::ReadOk(BodyReadOk { messages }));
+        }
+        None
     }
 
-    fn on_topology(&mut self, body_topology: &BodyTopology) -> BodyType {
-        let mut topology = HashMap::new();
-        for (src, dests) in body_topology.topology.iter() {
-            let mut set = HashSet::new();
-            for d in dests.iter() {
-                set.insert(d.clone());
-            }
-            topology.insert(src.clone(), set);
-        }
-        self.repo.set_topology(topology);
+    fn on_topology(&mut self, body_topology: BodyTopology) -> BodyType {
+        self.repo.set_topology(body_topology.topology);
         BodyType::TopologyOk
     }
 
     fn on_broadcast_ok(&self, body: &Body) -> Option<BodyType> {
         if let Some(msg_id) = body.in_reply_to {
-            self.msg_queue.write().unwrap().remove(&msg_id);
+            if let Ok(mut msg_queue) = self.msg_queue.write() {
+                msg_queue.remove(&msg_id);
+            }
         }
         None
     }

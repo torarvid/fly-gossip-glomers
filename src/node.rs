@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
+#[derive(Clone)]
 pub struct Node {
-    pub id: String,
+    id: String,
     messages: HashSet<usize>,
 }
 
@@ -23,5 +24,9 @@ impl Node {
 
     pub fn has_message(&self, msg_id: usize) -> bool {
         self.messages.contains(&msg_id)
+    }
+
+    pub fn id(&self) -> String {
+        self.id.clone()
     }
 }
